@@ -76,15 +76,15 @@ fn build_state() -> State {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    pretty_env_logger::formatted_builder()
-        .filter_level(log::LevelFilter::Info)
-        .init();
+    pretty_env_logger::init();
 
-    let args: Vec<String> = std::env::args().collect();
-    let listen = args.get(1).expect("Listening address:port not specified");
+    let listen =
+        env::var("LISTEN_ADDR").expect("Listening address:port not specified in LISTEN_ADDR");
+    let hostname = env::var("HOSTNAME").expect("HOSTNAME not set");
 
     let state = build_state();
     HttpServer::new(move || App::new().data(state.clone()).service(status))
+        .server_hostname(hostname)
         .bind(listen)?
         .run()
         .await
