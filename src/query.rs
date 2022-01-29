@@ -69,7 +69,7 @@ fn channel_tree(channels: Vec<ChannelFull>, clients: Vec<OnlineClientFull>) -> C
     for channel in channels {
         let node = ChannelNode {
             id: channel.cid,
-            name: channel.channel_name,
+            name: channel.channel_name.clone(),
             clients: clients
                 .iter()
                 .filter(|c| c.client_type == 0 && c.cid == channel.cid)
