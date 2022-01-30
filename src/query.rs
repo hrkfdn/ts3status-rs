@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     sync::{Arc, RwLock},
     time::Instant,
 };
@@ -41,9 +42,17 @@ pub struct ChannelNode {
     pub children: Vec<ChannelNode>,
 }
 
+#[derive(Clone, Default, Serialize)]
+pub struct ServerInfo {
+    pub name: String,
+    pub version: String,
+    pub platform: String,
+    pub channels: Vec<ChannelNode>,
+}
+
 pub struct StatusCache {
     pub last_update: Instant,
-    pub root: ChannelNode,
+    pub server_info: ServerInfo,
 }
 
 impl ChannelNode {
@@ -58,7 +67,11 @@ impl ChannelNode {
     }
 }
 
-fn channel_tree(channels: Vec<ChannelFull>, clients: Vec<OnlineClientFull>) -> ChannelNode {
+fn channel_tree(
+    server_info: &HashMap<String, Option<String>>,
+    channels: Vec<ChannelFull>,
+    clients: Vec<OnlineClientFull>,
+) -> ServerInfo {
     let mut root = ChannelNode {
         id: 0,
         name: "Root".to_string(),
@@ -80,17 +93,28 @@ fn channel_tree(channels: Vec<ChannelFull>, clients: Vec<OnlineClientFull>) -> C
         root.add_to_parent(channel.pid, &node);
     }
 
-    root
+    ServerInfo {
+        name: server_info["virtualserver_name"]
+            .clone()
+            .unwrap_or_default(),
+        version: server_info["virtualserver_version"]
+            .clone()
+            .unwrap_or_default(),
+        platform: server_info["virtualserver_platform"]
+            .clone()
+            .unwrap_or_default(),
+        channels: root.children,
+    }
 }
 
 pub async fn fetch_status(
     cfg: &Config,
     cache: &Arc<RwLock<StatusCache>>,
-) -> Result<ChannelNode, Ts3Error> {
+) -> Result<ServerInfo, Ts3Error> {
     info!("Fetching TS3 server status");
 
     let last_update = cache.read().expect("can't readlock cache").last_update;
-    let root = if last_update.elapsed().as_secs() > CACHE_LIFETIME {
+    let info = if last_update.elapsed().as_secs() > CACHE_LIFETIME {
         info!(
             "Status is {} seconds old, updating cache",
             last_update.elapsed().as_secs()
@@ -100,6 +124,11 @@ pub async fn fetch_status(
         client.login(&cfg.user, &cfg.password)?;
         client.select_server_by_id(cfg.ts3_server_id)?;
 
+        let server_info = client
+            .raw_command("serverinfo")
+            .map(|res| raw::parse_hashmap(res, true))?;
+        trace!("info: {:?}", server_info);
+
         let channels = client.channels_full()?;
         trace!("channels: {:?}", channels);
 
@@ -107,18 +136,22 @@ pub async fn fetch_status(
         trace!("clients: {:?}", clients);
         client.logout()?;
 
-        let root = channel_tree(channels, clients);
+        let server_info = channel_tree(&server_info, channels, clients);
         if let Ok(mut cache) = cache.write() {
             cache.last_update = Instant::now();
-            cache.root = root.clone();
+            cache.server_info = server_info.clone();
         } else {
             error!("Can not write lock cache");
         }
-        root
+        server_info
     } else {
         info!("Using cached server status");
-        cache.read().expect("can't readlock cache").root.clone()
+        cache
+            .read()
+            .expect("can't readlock cache")
+            .server_info
+            .clone()
     };
 
-    Ok(root)
+    Ok(info)
 }

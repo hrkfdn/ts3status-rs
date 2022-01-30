@@ -1,6 +1,6 @@
 use actix_web::{get, web, App, HttpServer, Responder, Result};
 use log::{debug, error};
-use query::{ChannelNode, StatusCache, CACHE_LIFETIME};
+use query::{ServerInfo, StatusCache, CACHE_LIFETIME};
 use serde::Serialize;
 use std::{
     env,
@@ -30,7 +30,7 @@ pub struct State {
 pub struct JsonResponse {
     pub success: bool,
     pub error: Option<String>,
-    pub channels: Option<ChannelNode>,
+    pub server_info: Option<ServerInfo>,
 }
 
 #[get("/")]
@@ -45,7 +45,7 @@ async fn status(state: web::Data<State>) -> Result<impl Responder> {
     let response = JsonResponse {
         success: result.is_ok(),
         error: result.as_ref().map_err(|e| format!("{:?}", e)).err(),
-        channels: result.ok(),
+        server_info: result.ok(),
     };
 
     Ok(web::Json(response))
@@ -68,7 +68,7 @@ fn build_state() -> State {
 
     let cache = Arc::new(RwLock::new(StatusCache {
         last_update: Instant::now().sub(Duration::from_secs(CACHE_LIFETIME)),
-        root: ChannelNode::default(),
+        server_info: ServerInfo::default(),
     }));
 
     State { cfg, cache }
